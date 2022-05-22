@@ -64,27 +64,36 @@ insertIntoEvents("CarrierTradeOrder", "buy", """PurchaseOrder"":")
 insertIntoEvents("CarrierTradeOrder", "sell", """SaleOrder"":")
 insertIntoEvents("CarrierTradeOrder", "cancel", """CancelTrade"":")
 
-Loop, parse, FileList, `n
+result := runCMD("findstr ""\""event\"":\""Carrier"" """ . journalPath . "Journal*.log""")
+Loop, Parse, result, `n
 {
-    if A_LoopField =  ; Ignore the blank item at the end of the list.
-        continue
-    count++
-    SB_SetText("Processing (" . count . "/" . total . "): " . A_LoopField)
-    Loop, Read, %journalPath%%A_LoopField%
+    logLines .= SubStr(A_LoopField, InStr(A_LoopField, "{")) . "`n"
+}
+Sort, logLines
+result := "" ; free memory
+
+; Loop, parse, FileList, `n
+; {
+;     if A_LoopField =  ; Ignore the blank item at the end of the list.
+;         continue
+;     count++
+    SB_SetText("Processing") ; (" . count . "/" . total . "): " . A_LoopField)
+    ; Loop, Read, %journalPath%%A_LoopField%
+    Loop, Parse, logLines, `n
     {
         ; the game doesn't write a "CarrierBuy" event and "CarrierNameChange" doesn't trigger on buying either
         ; "CarrierStats" however gets written when accessing the FC management panel which is a prerequisite for pretty much anything
         ; so we're using this as a workaround for getting a carriers id, callsign, and initial name
-        if InStr(A_LoopReadLine, events.CarrierStats.needle.val)
+        if InStr(A_LoopField, events.CarrierStats.needle.val)
         {
             ; id := SubStr(A_LoopReadLine, InStr(A_LoopReadLine, events.CarrierStats.id.val) + events.CarrierStats.id.len, 10)
-            id := extract("CarrierStats", "id")
+            id := extract(A_LoopField, "CarrierStats", "id")
             ; skip if FC is known already
             if carrierList.HasKey(id)
                 Continue
             
-            callsign := extract("CarrierStats", "callsign")
-            name := extract("CarrierStats", "name")
+            callsign := extract(A_LoopField, "CarrierStats", "callsign")
+            name := extract(A_LoopField, "CarrierStats", "name")
 
             carrierList[id] := {"callsign" : callsign, "name" : name, "tradeOrders" : {}}
             Continue
@@ -92,54 +101,54 @@ Loop, parse, FileList, `n
 
         ; tracking any subsequent name changes is similar to handling "CarrierStats"
         ; { "timestamp":"2020-06-18T16:00:13Z", "event":"CarrierNameChange", "CarrierID":3702178048, "Name":"HER MAJESTY'S EMBRACE", "Callsign":"Q6B-8KF" }
-        if InStr(A_LoopReadLine, events.CarrierNameChange.needle.val)
+        if InStr(A_LoopField, events.CarrierNameChange.needle.val)
         {
-            id := SubStr(A_LoopReadLine, InStr(A_LoopReadLine, events.CarrierNameChange.id.val) + events.CarrierNameChange.id.len, 10)
+            id := SubStr(A_LoopField, InStr(A_LoopField, events.CarrierNameChange.id.val) + events.CarrierNameChange.id.len, 10)
 
-            carrierList[id].Name := extract("CarrierNameChange", "name")
+            carrierList[id].Name := extract(A_LoopField, "CarrierNameChange", "name")
         }
 
         ; { "timestamp":"2020-06-18T17:59:19Z", "event":"CarrierTradeOrder", "CarrierID":3702178048, "BlackMarket":false, "Commodity":"opal", "Commodity_Localised":"Void Opal", "PurchaseOrder":200, "Price":1000586 }
         ; { "timestamp":"2020-06-18T18:01:12Z", "event":"CarrierTradeOrder", "CarrierID":3702178048, "BlackMarket":false, "Commodity":"tritium", "PurchaseOrder":500, "Price":416840 }
         ; { "timestamp":"2020-11-12T16:14:24Z", "event":"CarrierTradeOrder", "CarrierID":3702178048, "BlackMarket":false, "Commodity":"buildingfabricators", "Commodity_Localised":"Building Fabricators", "CancelTrade":true}
-        if InStr(A_LoopReadLine, events.CarrierTradeOrder.needle.val)
+        if InStr(A_LoopField, events.CarrierTradeOrder.needle.val)
         {
             ; determine which FC we're working with
-            id := SubStr(A_LoopReadLine, InStr(A_LoopReadLine, events.CarrierTradeOrder.carrierID.val) + events.CarrierTradeOrder.carrierID.len, 10)
+            id := SubStr(A_LoopField, InStr(A_LoopField, events.CarrierTradeOrder.carrierID.val) + events.CarrierTradeOrder.carrierID.len, 10)
 
             ; get the game's internal commodity name
-            commodity := extract("CarrierTradeOrder", "Commodity")
+            commodity := extract(A_LoopField, "CarrierTradeOrder", "Commodity")
             ; show(commodity)
 
             ; a canceled order is least effort, remove and move on
-            if InStr(A_LoopReadLine, events.CarrierTradeOrder.cancel.val)
+            if InStr(A_LoopField, events.CarrierTradeOrder.cancel.val)
             {
                 carrierList[id].tradeOrders.Delete(commodity)
                 Continue
             }
 
             ; events.CarrierTradeOrder.Commodity_Localised
-            name := extract("CarrierTradeOrder", "Commodity_Localised")
+            name := extract(A_LoopField, "CarrierTradeOrder", "Commodity_Localised")
             if (name == "")
                 StringUpper, name, commodity, T
             carrierList[id].tradeOrders[commodity].Name := name
 
             ; events.CarrierTradeOrder.BlackMarket
-            StringUpper, bm, % extract("CarrierTradeOrder", "BlackMarket"), T
+            StringUpper, bm, % extract(A_LoopField, "CarrierTradeOrder", "BlackMarket"), T
 
             type := "?"
             ; events.CarrierTradeOrder.buy
-            if (extract("CarrierTradeOrder", "buy"))
+            if (extract(A_LoopField, "CarrierTradeOrder", "buy"))
                 type := "Buy"
             
             ; events.CarrierTradeOrder.sell
-            if (extract("CarrierTradeOrder", "sell"))
+            if (extract(A_LoopField, "CarrierTradeOrder", "sell"))
                 type := "Sell"
             
             carrierList[id].tradeOrders[commodity] := {"Name" : name, "BlackMarket" : bm, "orderType" : type}
         }
     }
-}
+; }
 
 SB_SetText("Done")
 
@@ -195,16 +204,39 @@ insertIntoEvents(event, key, value, delimiter := ",")
     events[event][key].del := delimiter
 }
 
-extract(event, key)
+extract(source, event, key)
 {
     global events
-    offset := InStr(A_LoopReadLine, events[event][key].val)
+    offset := InStr(source, events[event][key].val)
     if (offset == 0)
     {
         ErrorLevel = 1
         Return ""
     }
     offset += events[event][key].len
-    length := InStr(A_LoopReadLine, events[event][key].del, false, offset) - offset
-    Return SubStr(A_LoopReadLine, offset, length)
+    length := InStr(source, events[event][key].del, false, offset) - offset
+    Return SubStr(source, offset, length)
+}
+
+runCMD(command := "") {
+    static shell
+
+    if (shell == "")
+    {
+        DetectHiddenWindows On
+        Run %ComSpec%,, Hide, pid
+        WinWait ahk_pid %pid%
+        DllCall("AttachConsole", "UInt", pid)
+        shell := ComObjCreate("WScript.Shell")
+        OnExit(A_ThisFunc)
+    }
+
+    if (command == "")
+    {
+        objRelease(shell)
+        DllCall( "FreeConsole" )
+        Return
+    }
+
+    return shell.Exec(ComSpec " /C " command).StdOut.ReadAll()
 }
