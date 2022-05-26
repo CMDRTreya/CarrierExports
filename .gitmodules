@@ -1,0 +1,3 @@
+[submodule "EDjournal"]
+	path = EDjournal
+	url = https://github.com/CMDRTreya/EDjournal.git
